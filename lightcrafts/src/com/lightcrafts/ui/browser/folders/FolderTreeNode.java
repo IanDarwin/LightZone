@@ -1,4 +1,5 @@
 /* Copyright (C) 2005-2011 Fabio Riccardi */
+/* Copyright (C) 2017-     Masahiro Kitagawa */
 
 package com.lightcrafts.ui.browser.folders;
 
@@ -13,6 +14,7 @@ import javax.swing.tree.TreePath;
 import java.io.File;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * A TreeNode representing a folder.
@@ -204,7 +206,7 @@ class FolderTreeNode implements TreeNode {
                 FileSystemView.isRoot(file);
     }
 
-    // Compute (or recompute) the chilren of this node.  Useful in the TreeNode
+    // Compute (or recompute) the children of this node.  Useful in the TreeNode
     // methods, and also when folder modifications are detected.
     void updateChildren() {
         if (children != null) {
@@ -217,7 +219,7 @@ class FolderTreeNode implements TreeNode {
         }
         children = new ArrayList<FolderTreeNode>();
 
-        File[] files = FileSystemView.getFiles(resolvedFile, true);
+        final File[] files = getFilesWithTimeout(resolvedFile);
         if (files != null && files.length > 0) {
             Arrays.sort(files);
             for (File file : files) {
@@ -241,6 +243,32 @@ class FolderTreeNode implements TreeNode {
             updateChildren();
         }
         return children;
+    }
+
+    private static final long TIMEOUT = 5000; // milliseconds
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+
+    private File[] getFilesWithTimeout(final File dir) {
+        Future<File[]> future = executor.submit(
+                new Callable<File[]>() {
+                    @Override
+                    public File[] call() throws Exception {
+                        return FileSystemView.getFiles(dir, true);
+                    }
+                }
+        );
+        try {
+            return future.get(TIMEOUT, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+            return null;
+        } catch (ExecutionException e) {
+            e.printStackTrace();
+            return null;
+        } catch (TimeoutException ignored) {
+            System.out.println("Timeout: " + dir);
+            return null;
+        }
     }
 
     /**
